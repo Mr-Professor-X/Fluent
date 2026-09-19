@@ -74,6 +74,24 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/rooms/[code]/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/rooms/[code]">> = Specific
+  const handler = {} as typeof import("../../src/app/api/rooms/[code]/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/rooms/join/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/rooms/join">> = Specific
+  const handler = {} as typeof import("../../src/app/api/rooms/join/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/settings/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/settings">> = Specific
@@ -87,6 +105,24 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/speech">> = Specific
   const handler = {} as typeof import("../../src/app/api/speech/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/transcribe/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/transcribe">> = Specific
+  const handler = {} as typeof import("../../src/app/api/transcribe/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/voices/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/voices">> = Specific
+  const handler = {} as typeof import("../../src/app/api/voices/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

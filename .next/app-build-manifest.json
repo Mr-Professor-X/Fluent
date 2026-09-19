@@ -1,10 +1,5 @@
 {
   "pages": {
-    "/api/conversations/[conversationId]/messages/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/conversations/[conversationId]/messages/route.js"
-    ],
     "/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
@@ -14,7 +9,38 @@
     "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
+      "static/css/app/page.css",
       "static/chunks/app/page.js"
+    ],
+    "/api/rooms/join/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/rooms/join/route.js"
+    ],
+    "/api/voices/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/voices/route.js"
+    ],
+    "/api/conversations/[conversationId]/messages/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/conversations/[conversationId]/messages/route.js"
+    ],
+    "/api/rooms/[code]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/rooms/[code]/route.js"
+    ],
+    "/api/transcribe/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/transcribe/route.js"
+    ],
+    "/api/realtime/transcript/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/realtime/transcript/route.js"
     ]
   }
 }
