@@ -93,8 +93,32 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   const languageCount = new Set(everyone.map(p => p.language)).size;
   const latestSpeech = useMemo(() => [...room.lines].reverse().find(l => l.kind === 'speech'), [room.lines]);
 
+  // Chat scrolling: follow new messages while you are at the bottom; if you scrolled up to read, show a "new messages" button instead.
   const messagesRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' }); }, [room.lines.length]);
+  const stickToBottom = useRef(true);
+  const seenCount = useRef(0);
+  const [unread, setUnread] = useState(0);
+  const scrollToBottom = () => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
+    stickToBottom.current = true;
+    setUnread(0);
+  };
+  const onMessagesScroll = () => {
+    const el = messagesRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (stickToBottom.current) setUnread(0);
+  };
+  useEffect(() => {
+    const added = room.lines.length - seenCount.current;
+    seenCount.current = room.lines.length;
+    if (added <= 0) return;
+    if (stickToBottom.current || room.lines[room.lines.length - 1]?.mine) requestAnimationFrame(scrollToBottom);
+    else setUnread(n => n + added);
+  }, [room.lines]);
 
   const inviteLink = typeof window === 'undefined' ? '' : `${window.location.origin}/?room=${session.code}`;
   const copyInvite = async () => {
@@ -108,7 +132,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   const micLabel = room.listening ? (room.playing ? 'Paused while translation plays' : room.transcribing ? 'Transcribing…' : 'Listening') : 'Microphone off';
 
   return (
-    <main className={`caption-${prefs.captionSize}`}>
+    <main className={`room-main caption-${prefs.captionSize}`}>
       <aside className="sidebar">
         <div className="brand"><FluidLogo /><span>fluid</span></div>
         <button className="new-conv" onClick={() => void copyInvite()}><span>＋</span> Invite someone</button>
@@ -158,7 +182,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               <span>•</span> {room.translationDown ? 'Translation unavailable' : 'Translation active'}
             </div>
 
-            <div className={`participant-grid ${everyone.length > 2 ? 'group-grid' : ''}`}>
+            <div className={`participant-grid ${everyone.length > 2 ? 'group-grid' : ''} ${video.localStream || video.remoteStream ? 'video-mode' : ''}`}>
               {everyone.map(p => {
                 const isMe = p.id === session.userId;
                 const stream = isMe ? video.localStream : p.id === video.remoteId ? video.remoteStream : null;
@@ -183,7 +207,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               )}
             </div>
 
-            {latestSpeech && (prefs.showOriginal || prefs.showTranslated) && <CaptionCard line={latestSpeech} prefs={prefs} />}
+            {latestSpeech && (prefs.showOriginal || prefs.showTranslated) && <CaptionCard key={latestSpeech.id} line={latestSpeech} prefs={prefs} />}
             {!latestSpeech && room.listening && <div className="caption-hint">Start talking. Pause for a moment and your sentence is sent.</div>}
 
             <div className="processing-note">Speech is sent to ElevenLabs for transcription and voice · Audio is never recorded or stored</div>
@@ -195,10 +219,11 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               <button onClick={() => setChatOpen(false)} aria-label="Collapse chat">›</button>
             </div>
             <div className="chat-toggle"><span>Translate messages</span><Switch on={prefs.translateChat} label="Translate messages" onClick={() => update({ translateChat: !prefs.translateChat })} /></div>
-            <div className="messages" ref={messagesRef} aria-live="polite">
+            <div className="messages" ref={messagesRef} onScroll={onMessagesScroll} aria-live="polite">
               {room.lines.length === 0 && <p className="empty-chat">Messages and spoken lines appear here, translated for each person.</p>}
               {room.lines.map(line => <ChatLine key={line.id} line={line} translate={prefs.translateChat} />)}
             </div>
+            {unread > 0 && <button className="new-messages" onClick={scrollToBottom}>↓ {unread} new {unread === 1 ? 'message' : 'messages'}</button>}
             <div className="composer">
               <textarea value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Type a message…" aria-label="Message" maxLength={2000} />
               <div><button className="send" onClick={send} aria-label="Send message"><Icon name="send" size={14} /></button></div>
@@ -213,7 +238,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               <small>{micLabel}</small>
             </button>
             <button className={`round ${video.cameraOn ? 'on' : ''}`} onClick={() => void video.toggleCamera()} aria-pressed={video.cameraOn} aria-label={video.cameraOn ? 'Turn camera off' : 'Turn camera on'}>
-              <span><Icon name={video.cameraOn ? 'video' : 'videoOff'} /></span><small>Camera</small>
+              <span><Icon name={video.cameraOn ? 'video' : 'videoOff'} /></span><small>{video.cameraOn ? 'Camera on' : 'Camera off'}</small>
             </button>
             <div className="caption-control">
               <button className={`round ${prefs.showOriginal || prefs.showTranslated ? 'on' : ''}`} onClick={() => setCaptionMenu(v => !v)} aria-expanded={captionMenu} aria-label="Caption options">

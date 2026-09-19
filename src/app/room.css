@@ -81,3 +81,55 @@
 button:focus-visible,.join-input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.join-main::before{animation:none}}
 @media (max-width:680px){.join-hero h1{font-size:34px}.lang-grid{grid-template-columns:repeat(2,1fr)}.caption-menu{left:auto;right:-60px;transform:none}}
+
+/* ===== Layout: the room fits the screen; chat and people lists scroll on their own ===== */
+main.room-main{height:100vh;height:100dvh;min-height:0;overflow:hidden}
+.room-main .sidebar{min-height:0;overflow:hidden}
+.room-main .sidebar nav{flex:1;min-height:0;overflow-y:auto}
+.room-main .workspace{height:100%;min-height:0;overflow:hidden}
+.room-main header,.room-main .controls{flex:none}
+.room-main .call-chat{flex:1;min-height:0}
+.room-main .call-area{min-height:0}
+.room-main .chat-panel{min-height:0;overflow:hidden;position:relative}
+.room-main .chat-head,.room-main .chat-toggle,.room-main .composer{flex:none}
+.room-main .messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.room-main .messages::-webkit-scrollbar{width:8px}
+.room-main .messages::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+.room-main .messages::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* ===== Chat animations ===== */
+@keyframes fl-in-left{from{opacity:0;transform:translate(-12px,10px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes fl-in-right{from{opacity:0;transform:translate(12px,10px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes fl-fade-down{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes fl-pop{from{opacity:0;transform:translate(-50%,8px) scale(.95)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes fl-caption-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.room-main .message{animation:fl-in-right .34s cubic-bezier(.2,.8,.2,1) both}
+.room-main .message.incoming{animation-name:fl-in-left}
+.room-main .bubble{transition:background .2s,box-shadow .2s}
+.room-main .bubble:hover{box-shadow:0 2px 10px #1a385714}
+.room-main .chat-translation{animation:fl-fade-down .22s ease both}
+.room-main .show-original{transition:color .15s}
+.room-main .show-original:hover{color:var(--accent)}
+.new-messages{position:absolute;left:50%;bottom:108px;transform:translateX(-50%);z-index:3;background:var(--fl-ocean);color:#fff;font-size:11px;font-weight:600;padding:7px 13px;border-radius:99px;box-shadow:0 6px 18px #1a385740,0 0 14px #00e5ff55;animation:fl-pop .25s ease both;white-space:nowrap}
+.caption-card{animation:fl-caption-in .35s cubic-bezier(.2,.8,.2,1) both}
+
+/* ===== Video: bigger tiles once any camera is on ===== */
+.participant{transition:box-shadow .3s,border-color .3s,background .3s}
+.participant-grid.video-mode{grid-template-columns:repeat(2,minmax(0,440px));width:min(900px,92%)}
+.participant-grid.video-mode .participant{height:auto;aspect-ratio:4/3}
+.participant-grid.video-mode.group-grid{grid-template-columns:repeat(2,minmax(0,340px))}
+.video-tile{animation:fl-fade-down .3s ease both}
+
+/* ===== Phones: call on top, chat underneath (both usable) ===== */
+@media (max-width:680px){
+  .room-main .call-chat{display:flex;flex-direction:column;overflow:hidden}
+  .room-main .call-area{flex:1 1 55%;height:auto;min-height:0}
+  .room-main .chat-panel{display:flex;flex:1 1 45%;border-left:0;border-top:1px solid var(--line)}
+  .room-main .chat-collapsed .chat-panel{display:none}
+  .participant-grid.video-mode{width:94%}
+  .new-messages{bottom:96px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .room-main .message,.room-main .chat-translation,.new-messages,.caption-card,.video-tile{animation:none}
+}
