@@ -1,0 +1,49 @@
+﻿/* ================= FLUID BLUE THEME ================= */
+:root{
+  --fl-white:#ffffff;
+  --fl-mist:#f1f8fc;
+  --fl-ice:#dff1f8;
+  --fl-aqua:#9ad9ec;
+  --fl-sky:#4fb0d8;
+  --fl-ocean:#2b77b3;
+  --fl-deep:#1f5a93;
+  --fl-navy:#1a3857;
+  --ink:#16324f;
+  --muted:#6f8aa3;
+  --line:#dbe9f1;
+  --blue:#2b77b3;
+  --purple:#4fb0d8;
+  --bg:#f1f8fc;
+}
+body{background:var(--fl-mist)}
+.sidebar,header,.chat-panel,.controls{background:var(--fl-white)}
+.brand-mark{background:linear-gradient(135deg,var(--fl-sky),var(--fl-deep))}
+.new-conv,.save{background:linear-gradient(105deg,var(--fl-sky),var(--fl-deep));box-shadow:0 6px 16px #2b77b340}
+.blue,.head-avatar{background:linear-gradient(135deg,var(--fl-sky),var(--fl-deep))!important}
+.conversation.selected{background:var(--fl-ice)}
+.call-area{background:
+  radial-gradient(circle at 12% 18%, #9ad9ec66 0 110px, transparent 112px),
+  radial-gradient(circle at 88% 82%, #4fb0d84d 0 150px, transparent 152px),
+  radial-gradient(circle at 94% 6%, #1f5a9326 0 170px, transparent 172px),
+  radial-gradient(circle at 20% 96%, #2b77b326 0 130px, transparent 132px),
+  linear-gradient(160deg,#eaf6fb,#f6fbfe 55%,#e3f1f8)}
+.participant{background:linear-gradient(145deg,#e3f3fa,#f7fcfe);border:1px solid #d3e8f2}
+.participant.active-speaker{background:linear-gradient(145deg,#d6eef8,#f1f9fd);border:1.5px solid var(--fl-sky);box-shadow:0 0 0 3px #4fb0d82e}
+.sound-bars,.speaking{color:var(--fl-ocean)}
+.speaking span{background:var(--fl-sky)}
+.caption-card{background:#1a3857f0;box-shadow:0 15px 35px #1a385740}
+.caption-line{border-color:#7fa3c2}
+.caption-line.translated{border-color:var(--fl-aqua)}
+.caption-line.translated p{color:#bfeaf6}
+.caption-line small{color:#9dbad2}
+.bubble{background:#f2f8fb}
+.message:not(.incoming) .bubble{background:var(--fl-ice)}
+.chat-translation small{color:#6f8aa3}
+.switch-on{background:var(--fl-ocean)}
+.composer textarea:focus{border-color:var(--fl-sky);box-shadow:0 0 0 3px #4fb0d826}
+.composer .send{background:var(--fl-ocean)}
+.round.on span{background:var(--fl-ice);color:var(--fl-deep)}
+.eyebrow,.person-select>span:last-child{color:var(--fl-ocean)}
+.person-select.chosen{color:var(--fl-deep)}
+.modal-backdrop{background:#1a385766}
+.toast{background:var(--fl-navy)}
