@@ -83,7 +83,7 @@ export default function JoinScreen({ initialCode, onJoined }: { initialCode: str
         <div className="lang-grid" role="radiogroup" aria-labelledby="lang-label">
           {LANGUAGES.map(l => (
             <button key={l.code} type="button" role="radio" aria-checked={language === l.code} className={`lang-option ${language === l.code ? 'chosen' : ''}`} onClick={() => setLanguage(l.code)}>
-              <span aria-hidden="true">{l.flag}</span> {l.native}
+              {l.native}
             </button>
           ))}
         </div>

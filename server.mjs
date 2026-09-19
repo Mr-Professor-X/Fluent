@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import next from 'next';
 import { Server } from 'socket.io';
@@ -9,7 +10,13 @@ const handle = app.getRequestHandler();
 await app.prepare();
 
 const httpServer = createServer(handle);
-const io = new Server(httpServer, { cors: { origin: process.env.NEXT_PUBLIC_APP_URL ?? true }, maxHttpBufferSize: 1e6 });
+const io = new Server(httpServer, {
+  cors: { origin: true },
+  maxHttpBufferSize: 1e6,
+  // Notice closed laptops and dropped Wi-Fi within ~15 seconds instead of ~45.
+  pingInterval: 8000,
+  pingTimeout: 7000,
+});
 
 /** socket.id -> { conversationId, userId } for sockets that passed the membership check */
 const members = new Map();
@@ -23,6 +30,14 @@ async function authorize(userId, conversationId) {
   } catch {
     return false;
   }
+}
+
+/** Who is connected right now. The people list shows only these users. */
+function online(conversationId) {
+  return [...new Set([...members.values()].filter((m) => m.conversationId === conversationId).map((m) => m.userId))];
+}
+function broadcastPresence(conversationId) {
+  io.to(room(conversationId)).emit('room:presence', { online: online(conversationId) });
 }
 
 io.use((socket, nextMiddleware) => {
@@ -42,18 +57,26 @@ io.on('connection', (socket) => {
     socket.join(room(conversationId));
     members.set(socket.id, { conversationId, userId: socket.data.userId });
     socket.to(room(conversationId)).emit('participant:joined', { userId: socket.data.userId });
-    ack({ ok: true });
+    broadcastPresence(conversationId);
+    ack({ ok: true, online: online(conversationId) });
   });
 
   socket.on('call:leave', () => leave(socket));
   socket.on('disconnect', () => leave(socket));
 
-  /** A finished spoken sentence or a typed chat message. Translated per recipient, then fanned out. */
+  /** A finished spoken sentence or a typed chat message. Shown instantly, then translated per recipient. */
   socket.on('line:send', async (payload) => {
     const member = members.get(socket.id);
     const { conversationId, text, sourceLanguage, kind } = payload ?? {};
     if (!member || member.conversationId !== conversationId) return socket.emit('call:error', { code: 'FORBIDDEN', message: 'Join the room first.' });
     if (typeof text !== 'string' || !text.trim() || text.length > 4000) return;
+
+    const lineKind = kind === 'speech' ? 'speech' : 'chat';
+    const pendingId = `pending-${randomUUID()}`;
+    // Everyone sees the original right away; translations replace it a moment later.
+    io.to(room(conversationId)).emit('line:pending', {
+      pendingId, kind: lineKind, speakerId: member.userId, sourceLanguage, original: text.trim(), createdAt: new Date().toISOString(),
+    });
 
     let result;
     try {
@@ -66,20 +89,15 @@ io.on('connection', (socket) => {
       result = await response.json();
     } catch (error) {
       console.error('line:send failed', error);
+      io.to(room(conversationId)).emit('line:failed', { pendingId });
       return socket.emit('call:error', { code: 'LINE_FAILED', message: 'That message could not be processed. Please try again.' });
     }
 
     const base = {
-      id: result.messageId,
-      kind: kind === 'speech' ? 'speech' : 'chat',
-      speakerId: member.userId,
-      speakerName: result.speakerName,
-      sourceLanguage: result.sourceLanguage,
-      original: result.originalText,
-      createdAt: new Date().toISOString(),
+      id: result.messageId, pendingId, kind: lineKind, speakerId: member.userId, speakerName: result.speakerName,
+      sourceLanguage: result.sourceLanguage, original: result.originalText, createdAt: new Date().toISOString(),
     };
     const byUser = new Map(result.recipients.map((r) => [r.userId, r]));
-
     for (const [socketId, other] of members) {
       if (other.conversationId !== conversationId) continue;
       if (other.userId === member.userId) {
@@ -92,11 +110,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  /** WebRTC signalling for the optional camera link. Relayed only inside the room. */
+  /** WebRTC signalling for voice + video. Sent to one person ("to") or the whole room. */
   socket.on('rtc:signal', (payload) => {
     const member = members.get(socket.id);
     if (!member || member.conversationId !== payload?.conversationId) return;
-    socket.to(room(member.conversationId)).emit('rtc:signal', { from: member.userId, signal: payload.signal });
+    const message = { from: member.userId, signal: payload.signal };
+    if (typeof payload.to === 'string') {
+      for (const [socketId, other] of members) {
+        if (other.conversationId === member.conversationId && other.userId === payload.to) io.to(socketId).emit('rtc:signal', message);
+      }
+    } else {
+      socket.to(room(member.conversationId)).emit('rtc:signal', message);
+    }
   });
 });
 
@@ -104,8 +129,10 @@ function leave(socket) {
   const member = members.get(socket.id);
   if (!member) return;
   members.delete(socket.id);
-  socket.to(room(member.conversationId)).emit('participant:left', { userId: member.userId });
   socket.leave(room(member.conversationId));
+  const stillHere = [...members.values()].some((m) => m.conversationId === member.conversationId && m.userId === member.userId);
+  if (!stillHere) socket.to(room(member.conversationId)).emit('participant:left', { userId: member.userId });
+  broadcastPresence(member.conversationId);
 }
 
 httpServer.listen(port, () => console.log(`Fluid is running on http://localhost:${port}`));

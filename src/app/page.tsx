@@ -1,19 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Ambient from '@/components/Ambient';
 import FluidLogo from '@/components/FluidLogo';
 import Icon from '@/components/Icon';
 import JoinScreen, { joinRoom } from '@/components/JoinScreen';
 import ThemeToggle from '@/components/ThemeToggle';
 import VideoTile from '@/components/VideoTile';
+import { useSpeaking } from '@/lib/audio/use-speaking';
 import { useFluidRoom, type Line, type Person, type Session } from '@/lib/calls/use-fluid-room';
-import { useVideoCall } from '@/lib/webrtc/use-video-call';
+import { useMediaMesh, type VoiceMode } from '@/lib/webrtc/use-media-mesh';
 import { LANGUAGES, languageByCode } from '@/lib/languages';
 
 type Voice = { id: string; name: string; description?: string };
-type Prefs = { translatedAudio: boolean; voiceId: string; volume: number; showOriginal: boolean; showTranslated: boolean; captionSize: 'small' | 'medium' | 'large'; translateChat: boolean };
-const defaultPrefs: Prefs = { translatedAudio: true, voiceId: '', volume: 0.9, showOriginal: true, showTranslated: true, captionSize: 'medium', translateChat: true };
+type Prefs = {
+  translatedAudio: boolean; voiceId: string; volume: number; originalVolume: number; voiceMode: VoiceMode;
+  showOriginal: boolean; showTranslated: boolean; captionSize: 'small' | 'medium' | 'large'; translateChat: boolean;
+};
+const defaultPrefs: Prefs = {
+  translatedAudio: true, voiceId: '', volume: 0.9, originalVolume: 1, voiceMode: 'translated',
+  showOriginal: true, showTranslated: true, captionSize: 'medium', translateChat: true,
+};
 const palette = ['#2b77b3', '#3a9fcb', '#1f5a93', '#2a9bb8', '#5d7fd1', '#0e8a9c'];
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
@@ -66,6 +73,8 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [copied, setCopied] = useState(false);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('fluid.prefs');
@@ -78,22 +87,81 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   useEffect(() => { localStorage.setItem('fluid.prefs', JSON.stringify(prefs)); }, [prefs]);
 
   const room = useFluidRoom(session, { translatedAudio: prefs.translatedAudio, voiceId: prefs.voiceId, volume: prefs.volume });
-  const video = useVideoCall(room.socket, room.joined, session.conversationId, session.userId);
+  const media = useMediaMesh(room.socket, room.joined, session.conversationId, session.userId, prefs.voiceMode, session.language);
+  const { setNotice, startListening, stopListening, setAudioBlocked } = room;
+
+  /* ---------- microphone: one stream feeds both the live call and translation ---------- */
+  const toggleMic = async () => {
+    if (micStreamRef.current) {
+      stopListening();
+      media.setMic(null);
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+      setMicStream(null);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      micStreamRef.current = stream;
+      setMicStream(stream);
+      media.setMic(stream.getAudioTracks()[0] ?? null);
+    } catch {
+      setNotice('Microphone unavailable. Check your browser permissions.');
+    }
+  };
+  // "AI translation" mode sends your speech for translation; "Own voice" mode never does.
+  useEffect(() => {
+    if (micStream && prefs.voiceMode === 'translated') startListening(micStream).catch(() => setNotice('Microphone unavailable.'));
+    else stopListening(prefs.voiceMode === 'translated'); // Own voice: drop the unfinished sentence, send nothing
+  }, [micStream, prefs.voiceMode, startListening, stopListening, setNotice]);
+  useEffect(() => () => { micStreamRef.current?.getTracks().forEach(t => t.stop()); }, []);
 
   useEffect(() => {
     if (!room.notice) return;
-    const timer = setTimeout(() => room.setNotice(''), 3500);
+    const timer = setTimeout(() => setNotice(''), 3500);
     return () => clearTimeout(timer);
-  }, [room.notice, room.setNotice]);
-  useEffect(() => { if (video.cameraError) room.setNotice(video.cameraError); }, [video.cameraError, room.setNotice]);
+  }, [room.notice, setNotice]);
+  useEffect(() => { if (media.cameraError) setNotice(media.cameraError); }, [media.cameraError, setNotice]);
 
   const me: Person = room.people.find(p => p.id === session.userId) ?? { id: session.userId, name: session.name, language: session.language };
   const others = room.people.filter(p => p.id !== session.userId);
   const everyone = [me, ...others];
-  const languageCount = new Set(everyone.map(p => p.language)).size;
+  const languageCount = new Set(everyone.map(p => (p.id === session.userId ? session.language : media.peerStates[p.id]?.language ?? p.language))).size;
   const latestSpeech = useMemo(() => [...room.lines].reverse().find(l => l.kind === 'speech'), [room.lines]);
 
-  // Chat scrolling: follow new messages while you are at the bottom; if you scrolled up to read, show a "new messages" button instead.
+  const languageOf = useCallback((person: Person) => (person.id === session.userId ? session.language : media.peerStates[person.id]?.language ?? person.language), [media.peerStates, session.language, session.userId]);
+
+  /** Real voice or AI voice? Decided per listener, per speaker. */
+  const hearRealVoice = useCallback((person: Person) => {
+    const theirMode = media.peerStates[person.id]?.voiceMode ?? 'translated';
+    return theirMode === 'original' || languageOf(person) === session.language || !prefs.translatedAudio;
+  }, [media.peerStates, languageOf, session.language, prefs.translatedAudio]);
+
+  // Chrome blocks sound until the page has been clicked (e.g. after a refresh). Any click or key unlocks it.
+  useEffect(() => {
+    const unlock = () => { window.dispatchEvent(new Event('fluid:unlock-audio')); setAudioBlocked(false); };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
+  }, [setAudioBlocked]);
+
+  // Tell the user once if someone can't be reached (their network blocks direct connections).
+  const warned = useRef(new Set<string>());
+  useEffect(() => {
+    for (const [id, status] of Object.entries(media.links)) {
+      if (status !== 'failed' || warned.current.has(id)) continue;
+      warned.current.add(id);
+      const name = room.people.find(p => p.id === id)?.name ?? 'Someone';
+      setNotice(media.relayAvailable
+        ? `Can't connect audio/video with ${name} yet. Retrying…`
+        : `Can't connect audio/video with ${name}: the network is blocking it. Try a phone hotspot. Chat and translation still work.`);
+    }
+  }, [media.links, media.relayAvailable, room.people, setNotice]);
+
+  const audioStreams = useMemo(() => ({ ...media.remoteAudio, [session.userId]: micStream }), [media.remoteAudio, micStream, session.userId]);
+  const speakingNow = useSpeaking(audioStreams, room.noteRemoteSpeech, session.userId);
+
+  // Chat scrolling: follow new messages while you are at the bottom; otherwise show a "new messages" button.
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
   const seenCount = useRef(0);
@@ -122,14 +190,23 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
 
   const inviteLink = typeof window === 'undefined' ? '' : `${window.location.origin}/?room=${session.code}`;
   const copyInvite = async () => {
-    try { await navigator.clipboard.writeText(inviteLink); setCopied(true); setTimeout(() => setCopied(false), 1600); room.setNotice('Invite link copied'); }
-    catch { room.setNotice(`Share this code: ${session.code}`); }
+    try { await navigator.clipboard.writeText(inviteLink); setCopied(true); setTimeout(() => setCopied(false), 1600); setNotice('Invite link copied'); }
+    catch { setNotice(`Share this code: ${session.code}`); }
   };
-  const send = () => { if (room.sendChat(draft)) setDraft(''); else room.setNotice('Not connected yet. Your draft is still here.'); };
+  const send = () => { if (room.sendChat(draft)) setDraft(''); else setNotice('Not connected yet. Your draft is still here.'); };
   const update = (patch: Partial<Prefs>) => setPrefs(p => ({ ...p, ...patch }));
+  const switchVoiceMode = () => {
+    const next: VoiceMode = prefs.voiceMode === 'translated' ? 'original' : 'translated';
+    update({ voiceMode: next });
+    setNotice(next === 'original' ? 'Own voice: everyone hears your real voice, no translation.' : 'AI translation: people who speak other languages hear you translated.');
+  };
 
   const statusLabel = { connecting: 'Connecting…', connected: 'Connected', reconnecting: 'Reconnecting…', lost: 'Connection lost', error: 'Could not join' }[room.state];
-  const micLabel = room.listening ? (room.playing ? 'Paused while translation plays' : room.transcribing ? 'Transcribing…' : 'Listening') : 'Microphone off';
+  const micLabel = !micStream ? 'Mic off'
+    : prefs.voiceMode === 'original' ? 'Live · own voice'
+    : room.playing ? 'Paused for translation'
+    : room.transcribing ? 'Transcribing…' : 'Listening';
+  const selfLevel = prefs.voiceMode === 'translated' ? room.level : speakingNow.has(session.userId) ? 0.6 : 0;
 
   return (
     <main className={`room-main caption-${prefs.captionSize}`}>
@@ -143,12 +220,14 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
         <div className="side-label">IN THIS ROOM <span className="count">{everyone.length}</span></div>
         <nav aria-label="Participants">
           {everyone.map(p => {
-            const lang = languageByCode(p.language);
+            const lang = languageByCode(languageOf(p));
+            const isMe = p.id === session.userId;
+            const ownVoice = (isMe ? prefs.voiceMode : media.peerStates[p.id]?.voiceMode) === 'original';
             return (
               <div key={p.id} className="conversation">
                 <span className="mini-avatar" style={{ background: colorFor(p.id) }}>{initials(p.name)}</span>
-                <span><b>{p.name}{p.id === session.userId ? ' (You)' : ''}</b><small>{lang.flag} {lang.native}</small></span>
-                {room.activeSpeaker === p.id && <i aria-label="Speaking" />}
+                <span><b>{p.name}{isMe ? ' (You)' : ''}</b><small>{lang.native}{ownVoice ? ' · own voice' : ''}</small></span>
+                {(room.activeSpeaker === p.id || speakingNow.has(p.id)) && <i aria-label="Speaking" />}
               </div>
             );
           })}
@@ -183,20 +262,33 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               <span>•</span> {room.translationDown ? 'Translation unavailable' : 'Translation active'}
             </div>
 
-            <div className={`participant-grid ${everyone.length > 2 ? 'group-grid' : ''} ${video.localStream || video.remoteStream ? 'video-mode' : ''}`}>
+            <div className={`participant-grid ${everyone.length > 2 ? 'group-grid' : ''} ${media.localVideo || Object.values(media.peerStates).some(st => st.camera) ? 'video-mode' : ''}`}>
               {everyone.map(p => {
                 const isMe = p.id === session.userId;
-                const stream = isMe ? video.localStream : p.id === video.remoteId ? video.remoteStream : null;
-                const speaking = room.activeSpeaker === p.id || (isMe && room.listening && room.level > 0.15);
+                const peer = media.peerStates[p.id];
+                const stream = isMe ? media.localVideo : peer?.camera ? media.remoteVideo[p.id] ?? null : null;
+                const speaking = room.activeSpeaker === p.id || speakingNow.has(p.id);
+                const ownVoice = (isMe ? prefs.voiceMode : peer?.voiceMode) === 'original';
+                const micOff = isMe ? !micStream : peer ? !peer.mic : false;
+                const link = isMe ? undefined : media.links[p.id];
                 return (
                   <article key={p.id} className={`participant ${speaking ? 'active-speaker' : ''} ${stream ? 'has-video' : ''}`}>
-                    {stream ? <VideoTile stream={stream} muted={isMe} mirrored={isMe} /> : (
+                    {stream ? <VideoTile stream={stream} muted mirrored={isMe} /> : (
                       <div className="orb" style={{ '--person': colorFor(p.id) } as React.CSSProperties}>
                         <span>{initials(p.name)}</span>
                         {speaking && <em className="sound-bars" aria-hidden="true"><i /><i /><i /><i /></em>}
                       </div>
                     )}
-                    <div className="participant-info"><b>{p.name}{isMe ? ' (You)' : ''}</b><span>{languageByCode(p.language).flag} {languageByCode(p.language).native}</span></div>
+                    <div className="participant-info">
+                      <b>{p.name}{isMe ? ' (You)' : ''}</b>
+                      <span>{languageByCode(languageOf(p)).native}</span>
+                    </div>
+                    <div className="tile-tags">
+                      {ownVoice && <span className="voice-badge">OWN VOICE</span>}
+                      {micOff && <span className="mic-off" aria-label="Microphone off"><Icon name="micOff" size={13} /></span>}
+                      {link === 'connecting' && <span className="link-tag">Connecting…</span>}
+                      {link === 'failed' && <span className="link-tag bad" title="Their network is blocking a direct connection. Chat and translation still work.">No audio/video link</span>}
+                    </div>
                     {speaking && <div className="speaking"><span /> LIVE</div>}
                   </article>
                 );
@@ -209,9 +301,11 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
             </div>
 
             {latestSpeech && (prefs.showOriginal || prefs.showTranslated) && <CaptionCard key={latestSpeech.id} line={latestSpeech} prefs={prefs} />}
-            {!latestSpeech && room.listening && <div className="caption-hint">Start talking. Pause for a moment and your sentence is sent.</div>}
+            {!latestSpeech && micStream && prefs.voiceMode === 'translated' && <div className="caption-hint">Start talking. Pause for a moment and your sentence is sent.</div>}
 
-            <div className="processing-note">Speech is sent to ElevenLabs for transcription and voice · Audio is never recorded or stored</div>
+            <div className="processing-note">
+              {prefs.voiceMode === 'original' ? 'Own voice: your speech goes straight to the call, never to ElevenLabs' : 'Speech is sent to ElevenLabs for transcription and voice · Audio is never recorded or stored'}
+            </div>
           </section>
 
           <section className="chat-panel" aria-label="Chat">
@@ -232,14 +326,28 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
           </section>
         </div>
 
+        {/* Real voices from the call. Each is muted or not, per the rules in hearRealVoice. */}
+        {others.map(p => media.remoteAudio[p.id] && (
+          <RemoteAudio key={p.id} stream={media.remoteAudio[p.id]!} muted={!hearRealVoice(p)} volume={prefs.originalVolume} onBlocked={() => setAudioBlocked(true)} />
+        ))}
+        {room.audioBlocked && (
+          <button className="sound-unlock" onClick={() => setNotice('Sound is on')}>
+            <Icon name="speaker" size={16} /> Tap to turn on sound
+          </button>
+        )}
+
         <footer className="controls">
           <div className="control-group">
-            <button className={`round ${room.listening ? 'on' : 'off'}`} onClick={() => void room.toggleMic()} aria-pressed={room.listening} aria-label={room.listening ? 'Turn microphone off' : 'Turn microphone on'}>
-              <span style={room.listening ? { boxShadow: `0 0 0 ${2 + room.level * 10}px #00e5ff33` } : undefined}><Icon name={room.listening ? 'mic' : 'micOff'} /></span>
+            <button className={`round ${micStream ? 'on' : 'off'}`} onClick={() => void toggleMic()} aria-pressed={!!micStream} aria-label={micStream ? 'Turn microphone off' : 'Turn microphone on'}>
+              <span style={micStream ? { boxShadow: `0 0 0 ${2 + selfLevel * 10}px rgba(0, 229, 255, .2), 0 0 22px rgba(0, 229, 255, .35)` } : undefined}><Icon name={micStream ? 'mic' : 'micOff'} /></span>
               <small>{micLabel}</small>
             </button>
-            <button className={`round ${video.cameraOn ? 'on' : ''}`} onClick={() => void video.toggleCamera()} aria-pressed={video.cameraOn} aria-label={video.cameraOn ? 'Turn camera off' : 'Turn camera on'}>
-              <span><Icon name={video.cameraOn ? 'video' : 'videoOff'} /></span><small>{video.cameraOn ? 'Camera on' : 'Camera off'}</small>
+            <button className={`round ${prefs.voiceMode === 'original' ? 'on' : ''}`} onClick={switchVoiceMode} aria-pressed={prefs.voiceMode === 'original'} aria-label="Switch between AI translation and your own voice">
+              <span><Icon name={prefs.voiceMode === 'original' ? 'user' : 'globe'} /></span>
+              <small>{prefs.voiceMode === 'original' ? 'Own voice' : 'AI translation'}</small>
+            </button>
+            <button className={`round ${media.cameraOn ? 'on' : ''}`} onClick={() => void media.toggleCamera()} aria-pressed={media.cameraOn} aria-label={media.cameraOn ? 'Turn camera off' : 'Turn camera on'}>
+              <span><Icon name={media.cameraOn ? 'video' : 'videoOff'} /></span><small>{media.cameraOn ? 'Camera on' : 'Camera off'}</small>
             </button>
             <div className="caption-control">
               <button className={`round ${prefs.showOriginal || prefs.showTranslated ? 'on' : ''}`} onClick={() => setCaptionMenu(v => !v)} aria-expanded={captionMenu} aria-label="Caption options">
@@ -247,13 +355,13 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               </button>
               {captionMenu && (
                 <div className="caption-menu" role="dialog" aria-label="Captions">
-                  <h3>Captions</h3>
+                  <h3>CAPTIONS</h3>
                   <div className="setting-row">Original captions <Switch on={prefs.showOriginal} label="Original captions" onClick={() => update({ showOriginal: !prefs.showOriginal })} /></div>
                   <div className="setting-row">Translated captions <Switch on={prefs.showTranslated} label="Translated captions" onClick={() => update({ showTranslated: !prefs.showTranslated })} /></div>
                 </div>
               )}
             </div>
-            <button className={`round ${prefs.translatedAudio ? 'on' : 'off'}`} onClick={() => { update({ translatedAudio: !prefs.translatedAudio }); room.setNotice(`Translated audio ${prefs.translatedAudio ? 'off' : 'on'}`); }} aria-pressed={prefs.translatedAudio} aria-label="Translated audio">
+            <button className={`round ${prefs.translatedAudio ? 'on' : 'off'}`} onClick={() => { update({ translatedAudio: !prefs.translatedAudio }); setNotice(prefs.translatedAudio ? 'Translated audio off: you hear everyone’s real voice.' : 'Translated audio on'); }} aria-pressed={prefs.translatedAudio} aria-label="Translated audio">
               <span><Icon name={prefs.translatedAudio ? 'speaker' : 'speakerOff'} /></span><small>Translated audio {prefs.translatedAudio ? 'ON' : 'OFF'}</small>
             </button>
             <button className="round" onClick={() => setSettingsOpen(true)} aria-label="Settings"><span><Icon name="settings" /></span><small>Settings</small></button>
@@ -277,7 +385,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
               sessionStorage.setItem('fluid.session', JSON.stringify(next));
               localStorage.setItem('fluid.lang', language);
               onSessionChange(next);
-            } catch { room.setNotice('Could not change your language.'); }
+            } catch { setNotice('Could not change your language.'); }
           }}
         />
       )}
@@ -285,34 +393,71 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   );
 }
 
+/** One hidden player per person. It keeps playing (muted when you should hear the AI voice instead),
+ *  retries after Chrome's sound block is lifted, and re-plays whenever it is unmuted. */
+function RemoteAudio({ stream, muted, volume, onBlocked }: { stream: MediaStream; muted: boolean; volume: number; onBlocked: () => void }) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const blocked = useRef(onBlocked);
+  blocked.current = onBlocked;
+  const play = useCallback(() => {
+    const element = ref.current;
+    if (!element) return;
+    element.play().catch((error: Error) => { if (error.name === 'NotAllowedError' && !element.muted) blocked.current(); });
+  }, []);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    element.srcObject = stream;
+    play();
+  }, [stream, play]);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    element.muted = muted;
+    element.volume = Math.max(0, Math.min(1, volume));
+    if (!muted) play();
+  }, [muted, volume, play]);
+  useEffect(() => {
+    window.addEventListener('fluid:unlock-audio', play);
+    return () => window.removeEventListener('fluid:unlock-audio', play);
+  }, [play]);
+  return <audio ref={ref} autoPlay playsInline data-fluid-audio="" />;
+}
+
 function CaptionCard({ line, prefs }: { line: Line; prefs: Prefs }) {
   const lang = languageByCode(line.sourceLanguage);
-  const differs = line.translated !== line.original && line.sourceLanguage !== line.targetLanguage;
+  const differs = line.sourceLanguage !== line.targetLanguage;
   const showTranslated = prefs.showTranslated && !line.mine && differs;
   const showOriginal = prefs.showOriginal || !showTranslated;
   return (
     <div className="caption-card" aria-live="polite">
       <div className="caption-speaker"><span className="mini-avatar" style={{ background: colorFor(line.speakerId) }}>{initials(line.speakerName)}</span> {line.mine ? 'You' : line.speakerName} <span className="caption-lang">Speaking {lang.name}</span></div>
       {showOriginal && <div className="caption-line"><small>ORIGINAL</small><p>{line.original}</p></div>}
-      {showTranslated && <div className="caption-line translated"><small>TRANSLATED</small><p>{line.translated}</p></div>}
-      {!line.mine && line.translationFailed && differs === false && line.sourceLanguage !== line.targetLanguage && <p className="caption-warning">Translation temporarily unavailable. Showing the original.</p>}
+      {showTranslated && (
+        <div className={`caption-line translated ${line.pending ? 'pending' : ''}`}>
+          <small>TRANSLATED</small>
+          <p>{line.pending ? 'Translating…' : line.translated}</p>
+        </div>
+      )}
+      {!line.mine && !line.pending && line.translationFailed && differs && <p className="caption-warning">Translation temporarily unavailable. Showing the original.</p>}
     </div>
   );
 }
 
 function ChatLine({ line, translate }: { line: Line; translate: boolean }) {
   const [showOriginal, setShowOriginal] = useState(false);
-  const differs = !line.mine && line.translated !== line.original;
+  const differs = !line.mine && !line.pending && line.translated !== line.original;
   const primary = translate && differs ? line.translated : line.original;
   return (
     <article className={`message ${line.mine ? '' : 'incoming'}`}>
       <span className="mini-avatar" style={{ background: colorFor(line.speakerId) }}>{initials(line.speakerName)}</span>
       <div>
         <div className="msg-meta"><b>{line.mine ? 'You' : line.speakerName}</b><time>{timeOf(line.createdAt)}</time>{line.kind === 'speech' && <em className="spoken-tag">VOICE</em>}</div>
-        <div className="bubble">
+        <div className="chat-bubble">
           <p>{primary}</p>
+          {line.pending && !line.mine && line.sourceLanguage !== line.targetLanguage && translate && <div className="chat-translation pending"><small>TRANSLATING</small></div>}
           {translate && differs && showOriginal && <div className="chat-translation"><small>ORIGINAL</small><p>{line.original}</p></div>}
-          {!line.mine && line.translationFailed && line.sourceLanguage !== line.targetLanguage && <div className="chat-translation"><small>Translation unavailable</small></div>}
+          {!line.mine && !line.pending && line.translationFailed && line.sourceLanguage !== line.targetLanguage && <div className="chat-translation"><small>Translation unavailable</small></div>}
         </div>
         {translate && differs && <button className="show-original" onClick={() => setShowOriginal(v => !v)}>{showOriginal ? 'Hide original' : 'Show original'}</button>}
       </div>
@@ -336,17 +481,17 @@ function SettingsModal({ prefs, voices, language, update, close, changeLanguage 
 
   const preview = async () => {
     setPreviewing(true);
+    const text = 'Hi! This is how translated speech will sound.';
     try {
-      const response = await fetch('/api/speech', { method: 'POST', headers: { 'content-type': 'application/json', 'x-fluid-user-id': sessionStorage.getItem('fluid.uid') ?? '' }, body: JSON.stringify({ text: 'Hi! This is how translated speech will sound.', voiceId: prefs.voiceId }) });
-      if (response.headers.get('content-type')?.includes('application/json')) {
-        const utterance = new SpeechSynthesisUtterance('Hi! This is how translated speech will sound.');
-        window.speechSynthesis.speak(utterance);
-      } else if (response.ok) {
-        const audio = new Audio(URL.createObjectURL(await response.blob()));
+      if (prefs.voiceId.startsWith('mock-')) {
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      } else {
+        const params = new URLSearchParams({ u: sessionStorage.getItem('fluid.uid') ?? '', text, voice: prefs.voiceId });
+        const audio = new Audio(`/api/speech?${params}`);
         audio.volume = prefs.volume;
         await audio.play();
       }
-    } finally { setPreviewing(false); }
+    } catch { /* preview is best effort */ } finally { setPreviewing(false); }
   };
 
   return (
@@ -356,16 +501,30 @@ function SettingsModal({ prefs, voices, language, update, close, changeLanguage 
         <p className="eyebrow">PREFERENCES</p>
         <h2 id="settings-title">Settings</h2>
         <p className="modal-sub">Each person's settings are independent.</p>
+
         <div className="settings-section">
-          <h3>Language</h3>
+          <h3>LANGUAGE</h3>
           <label>I speak and want to hear
             <select value={language} onChange={e => void changeLanguage(e.target.value)}>
-              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.flag} {l.native} ({l.name})</option>)}
+              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.native === l.name ? l.name : `${l.native} (${l.name})`}</option>)}
             </select>
           </label>
         </div>
+
         <div className="settings-section">
-          <h3>Translated audio</h3>
+          <h3>HOW OTHERS HEAR ME</h3>
+          <div className="segmented" role="radiogroup" aria-label="How others hear you">
+            <button role="radio" aria-checked={prefs.voiceMode === 'translated'} className={prefs.voiceMode === 'translated' ? 'chosen' : ''} onClick={() => update({ voiceMode: 'translated' })}>
+              <b>AI translation</b><small>Other languages hear you translated. Same language hears your real voice.</small>
+            </button>
+            <button role="radio" aria-checked={prefs.voiceMode === 'original'} className={prefs.voiceMode === 'original' ? 'chosen' : ''} onClick={() => update({ voiceMode: 'original' })}>
+              <b>Own voice</b><small>Everyone hears your real voice. Nothing is translated or sent to ElevenLabs.</small>
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>TRANSLATED AUDIO</h3>
           <div className="setting-row">Play translated speech <Switch on={prefs.translatedAudio} label="Translated audio" onClick={() => update({ translatedAudio: !prefs.translatedAudio })} /></div>
           <label>Translated voice
             <select value={prefs.voiceId} onChange={e => update({ voiceId: e.target.value })}>
@@ -373,12 +532,16 @@ function SettingsModal({ prefs, voices, language, update, close, changeLanguage 
             </select>
           </label>
           <button className="join-secondary preview" onClick={() => void preview()} disabled={previewing}>{previewing ? 'Playing…' : 'Preview voice'}</button>
-          <label>Voice volume
+          <label>Translated voice volume
             <input type="range" min={0} max={1} step={0.05} value={prefs.volume} onChange={e => update({ volume: Number(e.target.value) })} />
           </label>
+          <label>Real voice volume
+            <input type="range" min={0} max={1} step={0.05} value={prefs.originalVolume} onChange={e => update({ originalVolume: Number(e.target.value) })} />
+          </label>
         </div>
+
         <div className="settings-section">
-          <h3>Captions</h3>
+          <h3>CAPTIONS</h3>
           <div className="setting-row">Original captions <Switch on={prefs.showOriginal} label="Original captions" onClick={() => update({ showOriginal: !prefs.showOriginal })} /></div>
           <div className="setting-row">Translated captions <Switch on={prefs.showTranslated} label="Translated captions" onClick={() => update({ showTranslated: !prefs.showTranslated })} /></div>
           <label>Caption size

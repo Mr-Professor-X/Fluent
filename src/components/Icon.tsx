@@ -14,6 +14,8 @@ const paths: Record<string, React.ReactNode> = {
   chat: <path d="M4 5h16v11H9l-5 4z" />,
   check: <path d="M5 12l5 5L20 7" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+  globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>,
 };
 
 export default function Icon({ name, size = 18 }: { name: keyof typeof paths; size?: number }) {
