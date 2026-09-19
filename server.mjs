@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import next from 'next';
 import { Server } from 'socket.io';
 
-const dev = process.env.NODE_ENV !== 'production';
+const dev = process.argv.includes('--dev');
 const port = Number(process.env.PORT ?? 3000);
 const app = next({ dev });
 const handle = app.getRequestHandler();
