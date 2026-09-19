@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RealtimeClient } from '@/lib/realtime/client';
@@ -8,9 +8,9 @@ type Member = { name: string; initials: string; lang: string; color: string; sta
 type Message = { id: number; sender: string; initials: string; color: string; text: string; translated: string; time: string; incoming?: boolean };
 
 const conversations = [
-  { title: 'Maria Garcia', detail: 'Spanish · Last active now', initials: 'MG', color: '#ec6b72', active: true },
-  { title: 'Team Horizon', detail: '4 participants · Mixed languages', initials: 'TH', color: '#8372f6' },
-  { title: 'Jean Moreau', detail: 'French · Last active 1h ago', initials: 'JM', color: '#5cabb2' }
+  { title: 'Maria Garcia', detail: 'Spanish · Last active now', initials: 'MG', color: '#3a9fcb', active: true },
+  { title: 'Team Horizon', detail: '4 participants · Mixed languages', initials: 'TH', color: '#1f5a93' },
+  { title: 'Jean Moreau', detail: 'French · Last active 1h ago', initials: 'JM', color: '#2a9bb8' }
 ];
 const languageOptions = [['English','EN'], ['Español','ES'], ['Français','FR'], ['日本語','JA'], ['Deutsch','DE'], ['Português','PT']];
 
@@ -19,19 +19,19 @@ export default function Fluid() {
   const [captions, setCaptions] = useState(true), [audio, setAudio] = useState(true), [showOriginal, setShowOriginal] = useState(true), [showTranslated, setShowTranslated] = useState(true);
   const [translateChat, setTranslateChat] = useState(true), [message, setMessage] = useState(''), [settings, setSettings] = useState(false), [groupModal, setGroupModal] = useState(false), [notice, setNotice] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, sender: 'Maria', initials: 'MG', color: '#ec6b72', text: '¡Hola! ¿Cómo estás?', translated: 'Hi! How are you?', time: '10:41 AM', incoming: true },
-    { id: 2, sender: 'You', initials: 'AL', color: '#407aee', text: 'I’m great! Are we still meeting at seven?', translated: 'Estoy genial. ¿Seguimos quedando a las siete?', time: '10:42 AM' },
-    { id: 3, sender: 'Maria', initials: 'MG', color: '#ec6b72', text: 'Sí, nos vemos en Lumen Café.', translated: 'Yes, see you at Lumen Café.', time: '10:42 AM', incoming: true }
+    { id: 1, sender: 'Maria', initials: 'MG', color: '#3a9fcb', text: '¡Hola! ¿Cómo estás?', translated: 'Hi! How are you?', time: '10:41 AM', incoming: true },
+    { id: 2, sender: 'You', initials: 'AL', color: '#2b77b3', text: 'I’m great! Are we still meeting at seven?', translated: 'Estoy genial. ¿Seguimos quedando a las siete?', time: '10:42 AM' },
+    { id: 3, sender: 'Maria', initials: 'MG', color: '#3a9fcb', text: 'Sí, nos vemos en Lumen Café.', translated: 'Yes, see you at Lumen Café.', time: '10:42 AM', incoming: true }
   ]);
   const realtime = useRef<RealtimeClient | null>(null);
   const current = conversations[active];
-  const members: Member[] = active === 1 ? [{ name: 'Alex', initials: 'AL', lang: 'English', color: '#407aee' }, { name: 'Maria', initials: 'MG', lang: 'Español', color: '#ec6b72', status: 'Speaking' }, { name: 'Jean', initials: 'JM', lang: 'Français', color: '#5cabb2' }, { name: 'Kenji', initials: 'KS', lang: '日本語', color: '#c47bd7' }] : [{ name: 'Alex', initials: 'AL', lang: 'English', color: '#407aee' }, { name: 'Maria', initials: 'MG', lang: 'Español', color: '#ec6b72', status: 'Speaking' }];
+  const members: Member[] = active === 1 ? [{ name: 'Alex', initials: 'AL', lang: 'English', color: '#2b77b3' }, { name: 'Maria', initials: 'MG', lang: 'Español', color: '#3a9fcb', status: 'Speaking' }, { name: 'Jean', initials: 'JM', lang: 'Français', color: '#2a9bb8' }, { name: 'Kenji', initials: 'KS', lang: '日本語', color: '#5d7fd1' }] : [{ name: 'Alex', initials: 'AL', lang: 'English', color: '#2b77b3' }, { name: 'Maria', initials: 'MG', lang: 'Español', color: '#3a9fcb', status: 'Speaking' }];
   const displayName = current.title === 'Maria Garcia' ? 'Maria' : current.title;
   const conversationId = active === 0 ? 'maria-direct' : active === 1 ? 'team-horizon' : 'maria-direct';
   const liveCall = useFluidCall(conversationId);
   useEffect(() => { realtime.current = new RealtimeClient(); return realtime.current.close.bind(realtime.current); }, []);
   useEffect(() => realtime.current?.subscribe(event => { if (event.type !== 'message:send' || event.conversationId !== conversationId) return; setNotice('New message received'); }) ?? (() => {}), [conversationId]);
-  const addMessage = async () => { const text = message.trim(); if (!text) return; setMessage(''); try { const response = await fetch(`/api/conversations/${conversationId}/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-fluid-user-id': 'alex' }, body: JSON.stringify({ text, sourceLanguage: 'en' }) }); if (!response.ok) throw new Error(); const stored = await response.json() as { id:string; originalText:string; translatedText:string|null; createdAt:string }; setMessages(v => [...v, { id: Date.now(), sender: 'You', initials: 'AL', color: '#407aee', text: stored.originalText, translated: stored.translatedText ?? stored.originalText, time: 'Now' }]); realtime.current?.publish({ type: 'message:send', conversationId, text }); } catch { setMessage(text); setNotice('Message could not be sent. Your draft was restored.'); } };
+  const addMessage = async () => { const text = message.trim(); if (!text) return; setMessage(''); try { const response = await fetch(`/api/conversations/${conversationId}/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-fluid-user-id': 'alex' }, body: JSON.stringify({ text, sourceLanguage: 'en' }) }); if (!response.ok) throw new Error(); const stored = await response.json() as { id:string; originalText:string; translatedText:string|null; createdAt:string }; setMessages(v => [...v, { id: Date.now(), sender: 'You', initials: 'AL', color: '#2b77b3', text: stored.originalText, translated: stored.translatedText ?? stored.originalText, time: 'Now' }]); realtime.current?.publish({ type: 'message:send', conversationId, text }); } catch { setMessage(text); setNotice('Message could not be sent. Your draft was restored.'); } };
   const toggle = (setter: (x:boolean)=>void, value: boolean, label: string) => { setter(!value); setNotice(`${label} ${!value ? 'enabled' : 'disabled'}`); };
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 1800); return () => clearTimeout(timer); }, [notice]);
   return <main>
@@ -48,7 +48,7 @@ export default function Fluid() {
         <section className="call-area">
           <div className="call-status"><span className="live-dot"/> {liveCall.state === 'idle' ? 'Connected' : liveCall.state[0].toUpperCase() + liveCall.state.slice(1)} <span>•</span> Translation active</div>
           <div className={`participant-grid ${members.length > 2 ? 'group-grid' : ''}`}>{members.map((m,i) => <article className={`participant ${i===1?'active-speaker':''}`} key={m.name}><div className="orb" style={{'--person':m.color} as React.CSSProperties}><span>{m.initials}</span><em className="sound-bars">▁▃▆▃▁</em></div><div className="participant-info"><b>{m.name}{m.name === 'Alex' && ' (You)'}</b><span>{m.lang}</span></div>{m.status && <div className="speaking"><span/> {m.status}</div>}</article>)}</div>
-          {captions && <div className="caption-card"><div className="caption-speaker"><span className="mini-avatar" style={{background:'#ec6b72'}}>MG</span> Maria <span className="caption-lang">Speaking Spanish</span></div>{showOriginal && <div className="caption-line"><small>ORIGINAL</small><p>¿Quieres reunirte mañana?</p></div>}{showTranslated && <div className="caption-line translated"><small>TRANSLATED</small><p>Would you like to meet tomorrow?</p></div>}</div>}
+          {captions && <div className="caption-card"><div className="caption-speaker"><span className="mini-avatar" style={{background:'#3a9fcb'}}>MG</span> Maria <span className="caption-lang">Speaking Spanish</span></div>{showOriginal && <div className="caption-line"><small>ORIGINAL</small><p>¿Quieres reunirte mañana?</p></div>}{showTranslated && <div className="caption-line translated"><small>TRANSLATED</small><p>Would you like to meet tomorrow?</p></div>}</div>}
           <div className="processing-note">Speech is being processed for translation · Audio is never recorded</div>
         </section>
         <section className="chat-panel">
