@@ -1,0 +1,13 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/conversations/[conversationId]/messages/route": "/api/conversations/[conversationId]/messages",
+  "/api/settings/route": "/api/settings",
+  "/api/realtime/transcript/route": "/api/realtime/transcript",
+  "/api/voices/route": "/api/voices",
+  "/api/rooms/join/route": "/api/rooms/join",
+  "/icon.svg/route": "/icon.svg",
+  "/api/rooms/[code]/route": "/api/rooms/[code]",
+  "/api/transcribe/route": "/api/transcribe",
+  "/api/speech/route": "/api/speech",
+  "/page": "/"
+}

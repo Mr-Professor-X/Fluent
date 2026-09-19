@@ -1,11 +1,13 @@
 {
-  "/api/rooms/join/route": "app/api/rooms/join/route.js",
-  "/api/voices/route": "app/api/voices/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/api/conversations/[conversationId]/messages/route": "app/api/conversations/[conversationId]/messages/route.js",
+  "/api/settings/route": "app/api/settings/route.js",
+  "/api/realtime/transcript/route": "app/api/realtime/transcript/route.js",
+  "/api/voices/route": "app/api/voices/route.js",
+  "/api/rooms/join/route": "app/api/rooms/join/route.js",
+  "/icon.svg/route": "app/icon.svg/route.js",
   "/api/rooms/[code]/route": "app/api/rooms/[code]/route.js",
   "/api/transcribe/route": "app/api/transcribe/route.js",
-  "/api/realtime/transcript/route": "app/api/realtime/transcript/route.js",
   "/api/speech/route": "app/api/speech/route.js",
-  "/icon.svg/route": "app/icon.svg/route.js",
   "/page": "app/page.js"
 }

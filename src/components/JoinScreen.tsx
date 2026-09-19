@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Ambient from '@/components/Ambient';
 import FluidLogo from '@/components/FluidLogo';
 import ThemeToggle from '@/components/ThemeToggle';
 import { LANGUAGES } from '@/lib/languages';
@@ -62,23 +63,23 @@ export default function JoinScreen({ initialCode, onJoined }: { initialCode: str
 
   return (
     <main className="join-main">
-      <div className="join-theme"><ThemeToggle /></div>
-      <section className="join-hero">
-        <div className="brand"><FluidLogo /><span>fluid</span></div>
-        <h1>Speak naturally.<br /><span>Understand everyone.</span></h1>
-        <p>Start a room and share the code. Everyone picks their own language, and every sentence arrives translated as captions and a natural voice.</p>
-        <ul>
-          <li>Pause briefly and your sentence is sent</li>
-          <li>Captions in the original and in your language</li>
-          <li>{LANGUAGES.length} languages, no sign-up</li>
-        </ul>
+      <Ambient />
+      <nav className="topbar" aria-label="Fluid">
+        <div className="brand"><FluidLogo /><span className="wordmark">fluid</span></div>
+        <ThemeToggle />
+      </nav>
+
+      <section className="join-hero reveal">
+        <p className="eyebrow">LIVE INTERPRETER</p>
+        <h1>Speak naturally.<br /><span className="gradient-text">Understand everyone.</span></h1>
+        <p className="lede">Every sentence arrives in your language, as captions and a natural voice. {LANGUAGES.length} languages. No sign-up.</p>
       </section>
 
-      <section className="join-card" aria-label="Join a conversation">
-        <label className="join-label" htmlFor="join-name">Your name</label>
-        <input id="join-name" className="join-input" value={name} onChange={e => setName(e.target.value)} placeholder="Alex" maxLength={40} autoComplete="name" />
+      <section className="join-card reveal d1" aria-label="Join a conversation">
+        <label className="join-label" htmlFor="join-name">NAME</label>
+        <input id="join-name" className="join-input" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" maxLength={40} autoComplete="name" />
 
-        <p className="join-label" id="lang-label">You speak</p>
+        <p className="join-label" id="lang-label">LANGUAGE</p>
         <div className="lang-grid" role="radiogroup" aria-labelledby="lang-label">
           {LANGUAGES.map(l => (
             <button key={l.code} type="button" role="radio" aria-checked={language === l.code} className={`lang-option ${language === l.code ? 'chosen' : ''}`} onClick={() => setLanguage(l.code)}>
@@ -87,19 +88,19 @@ export default function JoinScreen({ initialCode, onJoined }: { initialCode: str
           ))}
         </div>
 
-        <button type="button" className="save join-primary" disabled={busy} onClick={() => void enter(randomCode())}>
+        <button type="button" className="join-primary" disabled={busy} onClick={() => void enter(randomCode())}>
           {busy ? 'Joining…' : 'Start a new room'}
         </button>
 
-        <div className="join-divider"><span />or join a room<span /></div>
+        <div className="join-divider"><span />or join with a code<span /></div>
 
         <div className="join-row">
-          <input aria-label="Room code" className="join-input code" value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="ROOM CODE" maxLength={12} onKeyDown={e => { if (e.key === 'Enter' && code.trim()) void enter(code); }} />
-          <button type="button" className="join-secondary" disabled={busy || code.trim().length < 4} onClick={() => void enter(code)}>Join</button>
+          <input aria-label="Room code" className="join-input code" value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="CODE" maxLength={12} onKeyDown={e => { if (e.key === 'Enter' && code.trim().length >= 4) void enter(code); }} />
+          <button type="button" className="join-secondary" disabled={busy || code.trim().length < 4} onClick={() => void enter(code)}>Join ›</button>
         </div>
 
         {error && <p className="join-error" role="alert">{error}</p>}
-        <p className="join-privacy">Your speech is sent to ElevenLabs for transcription and voice generation. Audio is never stored.</p>
+        <p className="join-privacy">Speech is sent to ElevenLabs for transcription and voice. Audio is never stored.</p>
       </section>
     </main>
   );

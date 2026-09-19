@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import './room.css';
+import Ambient from '@/components/Ambient';
 import FluidLogo from '@/components/FluidLogo';
 import Icon from '@/components/Icon';
 import JoinScreen, { joinRoom } from '@/components/JoinScreen';
@@ -134,13 +134,13 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   return (
     <main className={`room-main caption-${prefs.captionSize}`}>
       <aside className="sidebar">
-        <div className="brand"><FluidLogo /><span>fluid</span></div>
+        <div className="brand"><FluidLogo /><span className="wordmark">fluid</span></div>
         <button className="new-conv" onClick={() => void copyInvite()}><span>＋</span> Invite someone</button>
-        <div className="side-label">ROOM CODE</div>
+        <div className="side-label">ROOM</div>
         <button className="room-chip" onClick={() => void copyInvite()} aria-label={`Room code ${session.code}. Copy invite link`}>
           <span>{session.code}</span><Icon name={copied ? 'check' : 'copy'} size={15} />
         </button>
-        <div className="side-label">IN THIS ROOM · {everyone.length}</div>
+        <div className="side-label">IN THIS ROOM <span className="count">{everyone.length}</span></div>
         <nav aria-label="Participants">
           {everyone.map(p => {
             const lang = languageByCode(p.language);
@@ -177,6 +177,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
 
         <div className={`call-chat ${chatOpen ? '' : 'chat-collapsed'}`}>
           <section className="call-area" aria-label="Call">
+            <Ambient />
             <div className="call-status" role="status">
               <span className={`live-dot ${room.state === 'connected' ? '' : 'warn'}`} /> {statusLabel}
               <span>•</span> {room.translationDown ? 'Translation unavailable' : 'Translation active'}
@@ -192,11 +193,11 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
                     {stream ? <VideoTile stream={stream} muted={isMe} mirrored={isMe} /> : (
                       <div className="orb" style={{ '--person': colorFor(p.id) } as React.CSSProperties}>
                         <span>{initials(p.name)}</span>
-                        {speaking && <em className="sound-bars" aria-hidden="true">▁▃▆▃▁</em>}
+                        {speaking && <em className="sound-bars" aria-hidden="true"><i /><i /><i /><i /></em>}
                       </div>
                     )}
                     <div className="participant-info"><b>{p.name}{isMe ? ' (You)' : ''}</b><span>{languageByCode(p.language).flag} {languageByCode(p.language).native}</span></div>
-                    {speaking && <div className="speaking"><span /> Speaking</div>}
+                    {speaking && <div className="speaking"><span /> LIVE</div>}
                   </article>
                 );
               })}
@@ -292,8 +293,8 @@ function CaptionCard({ line, prefs }: { line: Line; prefs: Prefs }) {
   return (
     <div className="caption-card" aria-live="polite">
       <div className="caption-speaker"><span className="mini-avatar" style={{ background: colorFor(line.speakerId) }}>{initials(line.speakerName)}</span> {line.mine ? 'You' : line.speakerName} <span className="caption-lang">Speaking {lang.name}</span></div>
-      {showOriginal && <div className="caption-line"><small>{line.speakerName} · ORIGINAL</small><p>{line.original}</p></div>}
-      {showTranslated && <div className="caption-line translated"><small>{line.speakerName} · TRANSLATED</small><p>{line.translated}</p></div>}
+      {showOriginal && <div className="caption-line"><small>ORIGINAL</small><p>{line.original}</p></div>}
+      {showTranslated && <div className="caption-line translated"><small>TRANSLATED</small><p>{line.translated}</p></div>}
       {!line.mine && line.translationFailed && differs === false && line.sourceLanguage !== line.targetLanguage && <p className="caption-warning">Translation temporarily unavailable. Showing the original.</p>}
     </div>
   );
@@ -307,10 +308,10 @@ function ChatLine({ line, translate }: { line: Line; translate: boolean }) {
     <article className={`message ${line.mine ? '' : 'incoming'}`}>
       <span className="mini-avatar" style={{ background: colorFor(line.speakerId) }}>{initials(line.speakerName)}</span>
       <div>
-        <div className="msg-meta"><b>{line.mine ? 'You' : line.speakerName}</b><time>{timeOf(line.createdAt)}</time>{line.kind === 'speech' && <em className="spoken-tag">spoken</em>}</div>
+        <div className="msg-meta"><b>{line.mine ? 'You' : line.speakerName}</b><time>{timeOf(line.createdAt)}</time>{line.kind === 'speech' && <em className="spoken-tag">VOICE</em>}</div>
         <div className="bubble">
           <p>{primary}</p>
-          {translate && differs && showOriginal && <div className="chat-translation"><small>ORIGINAL · {languageByCode(line.sourceLanguage).native}</small><p>{line.original}</p></div>}
+          {translate && differs && showOriginal && <div className="chat-translation"><small>ORIGINAL</small><p>{line.original}</p></div>}
           {!line.mine && line.translationFailed && line.sourceLanguage !== line.targetLanguage && <div className="chat-translation"><small>Translation unavailable</small></div>}
         </div>
         {translate && differs && <button className="show-original" onClick={() => setShowOriginal(v => !v)}>{showOriginal ? 'Hide original' : 'Show original'}</button>}
@@ -352,7 +353,7 @@ function SettingsModal({ prefs, voices, language, update, close, changeLanguage 
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <button className="close" onClick={close} aria-label="Close settings">×</button>
-        <p className="eyebrow">PERSONALIZATION</p>
+        <p className="eyebrow">PREFERENCES</p>
         <h2 id="settings-title">Settings</h2>
         <p className="modal-sub">Each person's settings are independent.</p>
         <div className="settings-section">
