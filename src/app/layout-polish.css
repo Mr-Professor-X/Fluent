@@ -105,7 +105,7 @@ input:focus-visible {
   min-width: 64px;
 }
 
-@media (max-width: 1100px) {
+@media (min-width: 821px) and (max-width: 1100px) {
   main.room-main {
     grid-template-columns: 224px minmax(0, 1fr);
   }
