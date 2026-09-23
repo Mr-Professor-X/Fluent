@@ -26,15 +26,20 @@
       "static/chunks/main-app.js",
       "static/chunks/app/api/conversations/[conversationId]/messages/route.js"
     ],
+    "/api/ice/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/ice/route.js"
+    ],
     "/api/rooms/[code]/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/rooms/[code]/route.js"
     ],
-    "/api/ice/route": [
+    "/api/speech/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/ice/route.js"
+      "static/chunks/app/api/speech/route.js"
     ]
   }
 }

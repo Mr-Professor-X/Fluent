@@ -24,8 +24,10 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
-main.room-main {
-  grid-template-columns: 248px minmax(0, 1fr);
+@media (min-width: 821px) {
+  main.room-main {
+    grid-template-columns: 248px minmax(0, 1fr);
+  }
 }
 
 .sidebar {
