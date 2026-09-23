@@ -70,6 +70,7 @@ input:focus-visible {
 .participant-grid {
   width: min(920px, calc(100% - 40px));
   gap: 12px;
+  justify-content: center;
 }
 
 .participant {
