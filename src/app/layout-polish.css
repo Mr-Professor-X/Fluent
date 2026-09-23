@@ -32,11 +32,11 @@ input:focus-visible {
 
 .sidebar {
   width: 100%;
-  padding: 20px 14px 14px;
+  padding: 30px 14px 14px;
 }
 
 .brand {
-  padding: 2px 8px 18px;
+  padding: 2px 8px 20px;
 }
 
 .new-conv {
@@ -369,6 +369,17 @@ input:focus-visible {
     width: 40px;
     height: 40px;
   }
+}
+
+.modal-backdrop {
+  place-items: start center;
+  padding: 24px 20px;
+  overflow-y: auto;
+}
+
+.modal.settings-modal {
+  max-height: none;
+  margin: auto 0;
 }
 
 /* ---------- Voice matching (settings) ---------- */
