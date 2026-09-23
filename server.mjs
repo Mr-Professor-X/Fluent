@@ -22,11 +22,29 @@ const io = new Server(httpServer, {
 const members = new Map();
 const room = (conversationId) => `conversation:${conversationId}`;
 
-/** Ask the Next.js API whether this user belongs to the conversation (membership lives there). */
+/**
+ * Ask the Next.js API whether this user belongs to the conversation (membership lives there).
+ * HEAD keeps it to a membership lookup, and confirmed members are remembered briefly so a
+ * reconnect storm does not turn into one request per socket. Refusals are never cached, so
+ * somebody who has just joined is not locked out.
+ */
+const MEMBERSHIP_TTL_MS = 30_000;
+const membership = new Map();
+
 async function authorize(userId, conversationId) {
+  const key = `${userId}:${conversationId}`;
+  const cached = membership.get(key);
+  const now = Date.now();
+  if (cached && now - cached < MEMBERSHIP_TTL_MS) return true;
   try {
-    const response = await fetch(`http://localhost:${port}/api/conversations/${encodeURIComponent(conversationId)}/messages`, { headers: { 'x-fluid-user-id': userId } });
-    return response.ok;
+    const response = await fetch(`http://localhost:${port}/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      method: 'HEAD',
+      headers: { 'x-fluid-user-id': userId },
+    });
+    if (!response.ok) return false;
+    if (membership.size > 2000) for (const [k, at] of membership) if (now - at > MEMBERSHIP_TTL_MS) membership.delete(k);
+    membership.set(key, now);
+    return true;
   } catch {
     return false;
   }

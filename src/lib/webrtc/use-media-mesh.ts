@@ -11,14 +11,21 @@
  * - One side (the "impolite" one, by id order) creates exactly one audio slot and one video slot, so a
  *   single offer sets up both directions. Mic/camera on/off only swaps tracks (no renegotiation).
  * - TURN relay (from /api/ice) is used automatically when networks block direct connections.
- * - Each person's state (mic, camera, voice mode, language) is shared live, so listeners always
- *   make the right real-voice vs AI-voice decision.
+ * - Each person's state (mic, camera, voice mode, language, voice match) is shared live, so listeners
+ *   always make the right real-voice vs AI-voice decision and know which voice to use.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 
 export type VoiceMode = 'translated' | 'original';
-export type PeerState = { camera: boolean; mic: boolean; voiceMode: VoiceMode; language: string };
+export type PeerState = {
+  camera: boolean;
+  mic: boolean;
+  voiceMode: VoiceMode;
+  language: string;
+  /** Set when this person shares a voice match, so listeners can hear translations in their voice. */
+  voiceCloneId?: string;
+};
 export type LinkStatus = 'connecting' | 'connected' | 'relayed' | 'failed';
 
 const FALLBACK_ICE: RTCIceServer[] = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
@@ -243,6 +250,13 @@ export function useMediaMesh(
     broadcastState();
   }, [voiceMode, language, broadcastState]);
 
+  /** Share (or withdraw) the voice built from this person's own speech. */
+  const setVoiceClone = useCallback((voiceCloneId: string | null) => {
+    if ((state.current.voiceCloneId ?? null) === voiceCloneId) return;
+    state.current = { ...state.current, voiceCloneId: voiceCloneId ?? undefined };
+    broadcastState();
+  }, [broadcastState]);
+
   const setMic = useCallback((track: MediaStreamTrack | null) => {
     micTrack.current = track;
     for (const peer of peers.current.values()) void peer.audio?.sender.replaceTrack(track).catch(() => {});
@@ -288,7 +302,7 @@ export function useMediaMesh(
     peers.current.clear();
   }, []);
 
-  return { localVideo, remoteVideo, remoteAudio, peerStates, links, relayAvailable, cameraOn, cameraError, toggleCamera, setMic };
+  return { localVideo, remoteVideo, remoteAudio, peerStates, links, relayAvailable, cameraOn, cameraError, toggleCamera, setMic, setVoiceClone };
 }
 
 /** True when the live connection goes through a TURN relay (useful for troubleshooting). */
