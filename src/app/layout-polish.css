@@ -372,4 +372,3 @@ input:focus-visible {
 .setting-note { margin: 2px 0 10px; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
 .match-progress { height: 4px; margin: 0 0 12px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .match-progress i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--neon-cyan), var(--neon-mint)); transition: width .4s var(--ease); }
-body { outline: 12px solid magenta !important; }
