@@ -1,24 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Ambient from '@/components/Ambient';
 import FluidLogo from '@/components/FluidLogo';
 import Icon from '@/components/Icon';
 import JoinScreen, { joinRoom } from '@/components/JoinScreen';
+import SettingsModal, { type Prefs, type Voice } from '@/components/SettingsModal';
+import Switch from '@/components/Switch';
 import ThemeToggle from '@/components/ThemeToggle';
 import VideoTile from '@/components/VideoTile';
 import { useSpeaking } from '@/lib/audio/use-speaking';
 import { useFluidRoom, type Line, type Person, type Session } from '@/lib/calls/use-fluid-room';
 import { useMediaMesh, type VoiceMode } from '@/lib/webrtc/use-media-mesh';
-import { LANGUAGES, languageByCode } from '@/lib/languages';
+import { languageByCode } from '@/lib/languages';
 
-type Voice = { id: string; name: string; description?: string };
-type Prefs = {
-  translatedAudio: boolean; voiceId: string; volume: number; originalVolume: number; voiceMode: VoiceMode;
-  showOriginal: boolean; showTranslated: boolean; captionSize: 'small' | 'medium' | 'large'; translateChat: boolean;
-};
 const defaultPrefs: Prefs = {
-  translatedAudio: true, voiceId: '', volume: 0.9, originalVolume: 1, voiceMode: 'translated',
+  translatedAudio: true, voiceId: '', voiceSource: 'fixed', shareMyVoice: false,
+  volume: 0.9, originalVolume: 1, voiceMode: 'translated',
   showOriginal: true, showTranslated: true, captionSize: 'medium', translateChat: true,
 };
 const palette = ['#2b77b3', '#3a9fcb', '#1f5a93', '#2a9bb8', '#5d7fd1', '#0e8a9c'];
@@ -38,7 +36,8 @@ export default function Page() {
     const saved = sessionStorage.getItem('fluid.session');
     if (!saved) return setReady(true);
     // Rejoin after a refresh. This also works after a server restart wiped the in-memory rooms.
-    const previous = JSON.parse(saved) as Session;
+    let previous: Session;
+    try { previous = JSON.parse(saved) as Session; } catch { sessionStorage.removeItem('fluid.session'); return setReady(true); }
     joinRoom(fromLink || previous.code, previous.name, previous.language)
       .then(setSession)
       .catch(() => sessionStorage.removeItem('fluid.session'))
@@ -78,17 +77,41 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
 
   useEffect(() => {
     const stored = localStorage.getItem('fluid.prefs');
-    if (stored) setPrefs(p => ({ ...p, ...JSON.parse(stored) }));
+    if (stored) {
+      try { const saved = JSON.parse(stored) as Partial<Prefs>; setPrefs(p => ({ ...p, ...saved })); } catch { /* ignore a corrupt value */ }
+    }
     fetch('/api/voices').then(r => r.json()).then((list: Voice[]) => {
       setVoices(list);
       setPrefs(p => (p.voiceId && list.some(v => v.id === p.voiceId) ? p : { ...p, voiceId: list[0]?.id ?? '' }));
     }).catch(() => {});
   }, []);
-  useEffect(() => { localStorage.setItem('fluid.prefs', JSON.stringify(prefs)); }, [prefs]);
+  // Debounced: dragging a volume slider should not write to disk on every step.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try { localStorage.setItem('fluid.prefs', JSON.stringify(prefs)); } catch { /* private mode */ }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [prefs]);
 
-  const room = useFluidRoom(session, { translatedAudio: prefs.translatedAudio, voiceId: prefs.voiceId, volume: prefs.volume });
+  const audioPrefs = useMemo(() => ({
+    translatedAudio: prefs.translatedAudio, voiceId: prefs.voiceId, volume: prefs.volume,
+    voiceSource: prefs.voiceSource, shareMyVoice: prefs.shareMyVoice,
+  }), [prefs.translatedAudio, prefs.voiceId, prefs.volume, prefs.voiceSource, prefs.shareMyVoice]);
+
+  const room = useFluidRoom(session, audioPrefs);
   const media = useMediaMesh(room.socket, room.joined, session.conversationId, session.userId, prefs.voiceMode, session.language);
-  const { setNotice, startListening, stopListening, setAudioBlocked } = room;
+  const { setNotice, startListening, stopListening, setAudioBlocked, setSpeakerVoices } = room;
+  const { setVoiceClone } = media;
+
+  /* ---------- voice matching: my voice out, everyone else's voices in ---------- */
+  useEffect(() => { setVoiceClone(room.voiceCloneId); }, [room.voiceCloneId, setVoiceClone]);
+  const speakerVoices = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [id, peer] of Object.entries(media.peerStates)) if (peer.voiceCloneId) map[id] = peer.voiceCloneId;
+    if (room.voiceCloneId) map[session.userId] = room.voiceCloneId; // lets the Settings preview play my own voice
+    return map;
+  }, [media.peerStates, room.voiceCloneId, session.userId]);
+  useEffect(() => { setSpeakerVoices(speakerVoices); }, [speakerVoices, setSpeakerVoices]);
 
   /* ---------- microphone: one stream feeds both the live call and translation ---------- */
   const toggleMic = async () => {
@@ -128,6 +151,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   const everyone = [me, ...others];
   const languageCount = new Set(everyone.map(p => (p.id === session.userId ? session.language : media.peerStates[p.id]?.language ?? p.language))).size;
   const latestSpeech = useMemo(() => [...room.lines].reverse().find(l => l.kind === 'speech'), [room.lines]);
+  const sharingPeers = others.filter(p => media.peerStates[p.id]?.voiceCloneId).length;
 
   const languageOf = useCallback((person: Person) => (person.id === session.userId ? session.language : media.peerStates[person.id]?.language ?? person.language), [media.peerStates, session.language, session.userId]);
 
@@ -136,6 +160,14 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
     const theirMode = media.peerStates[person.id]?.voiceMode ?? 'translated';
     return theirMode === 'original' || languageOf(person) === session.language || !prefs.translatedAudio;
   }, [media.peerStates, languageOf, session.language, prefs.translatedAudio]);
+
+  /** True when I will hear this person's translation in a voice built from their own speech. */
+  const voiceMatched = useCallback(
+    (person: Person) => prefs.voiceSource === 'speaker' && !!media.peerStates[person.id]?.voiceCloneId,
+    [prefs.voiceSource, media.peerStates],
+  );
+  /** True when my own voice is out there for others to hear, whatever I chose to listen to. */
+  const sharingMyVoice = !!room.voiceCloneId;
 
   // Chrome blocks sound until the page has been clicked (e.g. after a refresh). Any click or key unlocks it.
   useEffect(() => {
@@ -194,7 +226,7 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
     catch { setNotice(`Share this code: ${session.code}`); }
   };
   const send = () => { if (room.sendChat(draft)) setDraft(''); else setNotice('Not connected yet. Your draft is still here.'); };
-  const update = (patch: Partial<Prefs>) => setPrefs(p => ({ ...p, ...patch }));
+  const update = useCallback((patch: Partial<Prefs>) => setPrefs(p => ({ ...p, ...patch })), []);
   const switchVoiceMode = () => {
     const next: VoiceMode = prefs.voiceMode === 'translated' ? 'original' : 'translated';
     update({ voiceMode: next });
@@ -206,7 +238,8 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
     : prefs.voiceMode === 'original' ? 'Live · own voice'
     : room.playing ? 'Paused for translation'
     : room.transcribing ? 'Transcribing…' : 'Listening';
-  const selfLevel = prefs.voiceMode === 'translated' ? room.level : speakingNow.has(session.userId) ? 0.6 : 0;
+  // In own-voice mode there is no transcription level to show, so fall back to speech detection.
+  const glowFloor = prefs.voiceMode === 'original' && speakingNow.has(session.userId) ? 0.6 : 0;
 
   return (
     <main className={`room-main caption-${prefs.captionSize}`}>
@@ -223,10 +256,13 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
             const lang = languageByCode(languageOf(p));
             const isMe = p.id === session.userId;
             const ownVoice = (isMe ? prefs.voiceMode : media.peerStates[p.id]?.voiceMode) === 'original';
+            const note = ownVoice ? ' · own voice'
+              : isMe ? (sharingMyVoice ? ' · voice shared' : '')
+              : voiceMatched(p) ? ' · voice matched' : '';
             return (
               <div key={p.id} className="conversation">
                 <span className="mini-avatar" style={{ background: colorFor(p.id) }}>{initials(p.name)}</span>
-                <span><b>{p.name}{isMe ? ' (You)' : ''}</b><small>{lang.native}{ownVoice ? ' · own voice' : ''}</small></span>
+                <span><b>{p.name}{isMe ? ' (You)' : ''}</b><small>{lang.native}{note}</small></span>
                 {(room.activeSpeaker === p.id || speakingNow.has(p.id)) && <i aria-label="Speaking" />}
               </div>
             );
@@ -285,6 +321,8 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
                     </div>
                     <div className="tile-tags">
                       {ownVoice && <span className="voice-badge">OWN VOICE</span>}
+                      {!ownVoice && isMe && sharingMyVoice && <span className="voice-badge">VOICE SHARED</span>}
+                      {!ownVoice && !isMe && voiceMatched(p) && <span className="voice-badge">MATCHED VOICE</span>}
                       {micOff && <span className="mic-off" aria-label="Microphone off"><Icon name="micOff" size={13} /></span>}
                       {link === 'connecting' && <span className="link-tag">Connecting…</span>}
                       {link === 'failed' && <span className="link-tag bad" title="Their network is blocking a direct connection. Chat and translation still work.">No audio/video link</span>}
@@ -339,7 +377,9 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
         <footer className="controls">
           <div className="control-group">
             <button className={`round ${micStream ? 'on' : 'off'}`} onClick={() => void toggleMic()} aria-pressed={!!micStream} aria-label={micStream ? 'Turn microphone off' : 'Turn microphone on'}>
-              <span style={micStream ? { boxShadow: `0 0 0 ${2 + selfLevel * 10}px rgba(0, 229, 255, .2), 0 0 22px rgba(0, 229, 255, .35)` } : undefined}><Icon name={micStream ? 'mic' : 'micOff'} /></span>
+              {micStream
+                ? <MicGlow levelRef={room.levelRef} floor={glowFloor}><Icon name="mic" /></MicGlow>
+                : <span><Icon name="micOff" /></span>}
               <small>{micLabel}</small>
             </button>
             <button className={`round ${prefs.voiceMode === 'original' ? 'on' : ''}`} onClick={switchVoiceMode} aria-pressed={prefs.voiceMode === 'original'} aria-label="Switch between AI translation and your own voice">
@@ -376,8 +416,14 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
           prefs={prefs}
           voices={voices}
           language={session.language}
+          voiceMatch={room.voiceMatch}
+          voiceMatchProgress={room.voiceMatchProgress}
+          sharingPeers={sharingPeers}
+          otherPeople={others.length}
+          micOn={!!micStream}
           update={update}
           close={() => setSettingsOpen(false)}
+          preview={room.previewVoice}
           changeLanguage={async language => {
             try {
               await room.changeLanguage(language);
@@ -393,9 +439,38 @@ function Room({ session, onSessionChange, onLeave }: { session: Session; onSessi
   );
 }
 
+/**
+ * The mic-level glow, driven straight from a ref. The level changes ~12 times a second; routing it
+ * through React state would re-render every tile and chat line with it.
+ */
+function MicGlow({ levelRef, floor, children }: { levelRef: { current: number }; floor: number; children: React.ReactNode }) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const glow = (level: number) => {
+      element.style.boxShadow = `0 0 0 ${2 + level * 10}px rgba(0, 229, 255, .2), 0 0 22px rgba(0, 229, 255, .35)`;
+    };
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      glow(Math.max(floor, 0.2));
+      return;
+    }
+    let frame = 0;
+    let shown = -1;
+    const tick = () => {
+      const level = Math.max(levelRef.current, floor);
+      if (Math.abs(level - shown) > 0.01) { shown = level; glow(level); }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [levelRef, floor]);
+  return <span ref={ref}>{children}</span>;
+}
+
 /** One hidden player per person. It keeps playing (muted when you should hear the AI voice instead),
  *  retries after Chrome's sound block is lifted, and re-plays whenever it is unmuted. */
-function RemoteAudio({ stream, muted, volume, onBlocked }: { stream: MediaStream; muted: boolean; volume: number; onBlocked: () => void }) {
+const RemoteAudio = memo(function RemoteAudio({ stream, muted, volume, onBlocked }: { stream: MediaStream; muted: boolean; volume: number; onBlocked: () => void }) {
   const ref = useRef<HTMLAudioElement | null>(null);
   const blocked = useRef(onBlocked);
   blocked.current = onBlocked;
@@ -422,7 +497,7 @@ function RemoteAudio({ stream, muted, volume, onBlocked }: { stream: MediaStream
     return () => window.removeEventListener('fluid:unlock-audio', play);
   }, [play]);
   return <audio ref={ref} autoPlay playsInline data-fluid-audio="" />;
-}
+});
 
 function CaptionCard({ line, prefs }: { line: Line; prefs: Prefs }) {
   const lang = languageByCode(line.sourceLanguage);
@@ -444,7 +519,8 @@ function CaptionCard({ line, prefs }: { line: Line; prefs: Prefs }) {
   );
 }
 
-function ChatLine({ line, translate }: { line: Line; translate: boolean }) {
+/** Memoised: a new line must not re-render the whole history. */
+const ChatLine = memo(function ChatLine({ line, translate }: { line: Line; translate: boolean }) {
   const [showOriginal, setShowOriginal] = useState(false);
   const differs = !line.mine && !line.pending && line.translated !== line.original;
   const primary = translate && differs ? line.translated : line.original;
@@ -463,95 +539,4 @@ function ChatLine({ line, translate }: { line: Line; translate: boolean }) {
       </div>
     </article>
   );
-}
-
-function Switch({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
-  return <button className={`switch ${on ? 'switch-on' : ''}`} onClick={onClick} role="switch" aria-checked={on} aria-label={label}><span /></button>;
-}
-
-function SettingsModal({ prefs, voices, language, update, close, changeLanguage }: {
-  prefs: Prefs; voices: Voice[]; language: string; update: (p: Partial<Prefs>) => void; close: () => void; changeLanguage: (language: string) => Promise<void>;
-}) {
-  const [previewing, setPreviewing] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [close]);
-
-  const preview = async () => {
-    setPreviewing(true);
-    const text = 'Hi! This is how translated speech will sound.';
-    try {
-      if (prefs.voiceId.startsWith('mock-')) {
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-      } else {
-        const params = new URLSearchParams({ u: sessionStorage.getItem('fluid.uid') ?? '', text, voice: prefs.voiceId });
-        const audio = new Audio(`/api/speech?${params}`);
-        audio.volume = prefs.volume;
-        await audio.play();
-      }
-    } catch { /* preview is best effort */ } finally { setPreviewing(false); }
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
-      <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <button className="close" onClick={close} aria-label="Close settings">×</button>
-        <p className="eyebrow">PREFERENCES</p>
-        <h2 id="settings-title">Settings</h2>
-        <p className="modal-sub">Each person's settings are independent.</p>
-
-        <div className="settings-section">
-          <h3>LANGUAGE</h3>
-          <label>I speak and want to hear
-            <select value={language} onChange={e => void changeLanguage(e.target.value)}>
-              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.native === l.name ? l.name : `${l.native} (${l.name})`}</option>)}
-            </select>
-          </label>
-        </div>
-
-        <div className="settings-section">
-          <h3>HOW OTHERS HEAR ME</h3>
-          <div className="segmented" role="radiogroup" aria-label="How others hear you">
-            <button role="radio" aria-checked={prefs.voiceMode === 'translated'} className={prefs.voiceMode === 'translated' ? 'chosen' : ''} onClick={() => update({ voiceMode: 'translated' })}>
-              <b>AI translation</b><small>Other languages hear you translated. Same language hears your real voice.</small>
-            </button>
-            <button role="radio" aria-checked={prefs.voiceMode === 'original'} className={prefs.voiceMode === 'original' ? 'chosen' : ''} onClick={() => update({ voiceMode: 'original' })}>
-              <b>Own voice</b><small>Everyone hears your real voice. Nothing is translated or sent to ElevenLabs.</small>
-            </button>
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <h3>TRANSLATED AUDIO</h3>
-          <div className="setting-row">Play translated speech <Switch on={prefs.translatedAudio} label="Translated audio" onClick={() => update({ translatedAudio: !prefs.translatedAudio })} /></div>
-          <label>Translated voice
-            <select value={prefs.voiceId} onChange={e => update({ voiceId: e.target.value })}>
-              {voices.map(v => <option key={v.id} value={v.id}>{v.name}{v.description ? ` · ${v.description}` : ''}</option>)}
-            </select>
-          </label>
-          <button className="join-secondary preview" onClick={() => void preview()} disabled={previewing}>{previewing ? 'Playing…' : 'Preview voice'}</button>
-          <label>Translated voice volume
-            <input type="range" min={0} max={1} step={0.05} value={prefs.volume} onChange={e => update({ volume: Number(e.target.value) })} />
-          </label>
-          <label>Real voice volume
-            <input type="range" min={0} max={1} step={0.05} value={prefs.originalVolume} onChange={e => update({ originalVolume: Number(e.target.value) })} />
-          </label>
-        </div>
-
-        <div className="settings-section">
-          <h3>CAPTIONS</h3>
-          <div className="setting-row">Original captions <Switch on={prefs.showOriginal} label="Original captions" onClick={() => update({ showOriginal: !prefs.showOriginal })} /></div>
-          <div className="setting-row">Translated captions <Switch on={prefs.showTranslated} label="Translated captions" onClick={() => update({ showTranslated: !prefs.showTranslated })} /></div>
-          <label>Caption size
-            <select value={prefs.captionSize} onChange={e => update({ captionSize: e.target.value as Prefs['captionSize'] })}>
-              <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
-            </select>
-          </label>
-        </div>
-        <button className="save" onClick={close}>Done</button>
-      </section>
-    </div>
-  );
-}
+});

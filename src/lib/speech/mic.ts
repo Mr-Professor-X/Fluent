@@ -54,6 +54,26 @@ export function clipDurationMs(clip: Blob) {
   return (Math.max(0, clip.size - 44) / (TARGET_RATE * 2)) * 1000;
 }
 
+/**
+ * Joins several clips into one WAV file. Used for the voice match, where ElevenLabs makes a better
+ * voice from one continuous sample than from a handful of fragments.
+ */
+export async function concatWav(clips: Blob[]): Promise<Blob> {
+  const bodies = await Promise.all(clips.map(async clip => new Uint8Array(await clip.arrayBuffer()).subarray(44)));
+  const bytes = bodies.reduce((sum, body) => sum + body.length, 0);
+  const buffer = new ArrayBuffer(44 + bytes);
+  const view = new DataView(buffer);
+  const writeStr = (pos: number, str: string) => { for (let i = 0; i < str.length; i++) view.setUint8(pos + i, str.charCodeAt(i)); };
+  writeStr(0, 'RIFF'); view.setUint32(4, 36 + bytes, true); writeStr(8, 'WAVE'); writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, TARGET_RATE, true); view.setUint32(28, TARGET_RATE * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); writeStr(36, 'data'); view.setUint32(40, bytes, true);
+  const out = new Uint8Array(buffer);
+  let offset = 44;
+  for (const body of bodies) { out.set(body, offset); offset += body.length; }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
 /** stop(false) discards the unfinished sentence instead of sending it. */
 export type MicHandle = { stop: (sendUnfinished?: boolean) => void };
 export type MicOptions = { onSegment: (clip: Blob) => void; onLevel?: (level: number) => void; stream?: MediaStream };
