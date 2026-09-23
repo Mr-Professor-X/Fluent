@@ -7,7 +7,12 @@ export const metadata: Metadata = {
   description: 'Real-time multilingual voice and chat. Everyone speaks their own language.',
 };
 
-export const viewport: Viewport = { themeColor: '#000000', colorScheme: 'dark light' };
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#000000',
+  colorScheme: 'dark light',
+};
 
 /** Runs before the first paint so the saved theme (dark by default) never flashes. */
 const themeScript = `try{var t=localStorage.getItem('fluid-theme-v2');document.documentElement.dataset.theme=t==='light'?'light':'dark'}catch(e){document.documentElement.dataset.theme='dark'}`;
