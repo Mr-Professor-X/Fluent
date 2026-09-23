@@ -1,4 +1,5 @@
 import './fluid.css';
+import './layout-polish.css';
 import type { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
